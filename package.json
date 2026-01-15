@@ -1,0 +1,32 @@
+{
+  "name": "iiif-interim-annotator",
+  "version": "0.1.0",
+  "description": "Web Components-based semantic annotator for IIIF and intermedial phenomena",
+  "type": "module",
+  "main": "dist/iiif-interim-annotator.js",
+  "module": "dist/iiif-interim-annotator.js",
+  "exports": {
+    ".": "./dist/iiif-interim-annotator.js"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [
+    "iiif",
+    "web-components",
+    "annotation",
+    "intermedial",
+    "ekphrasis",
+    "digital-humanities"
+  ],
+  "author": "Carlo Teo Pedretti",
+  "license": "MIT",
+  "devDependencies": {
+    "vite": "^5.0.0"
+  },
+  "dependencies": {
+    "openseadragon": "^4.1.0"
+  }
+}
