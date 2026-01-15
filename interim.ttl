@@ -1,0 +1,236 @@
+@prefix : <https://w3id.org/interim/> .
+@prefix interim: <https://w3id.org/interim/> .
+@prefix miro: <https://w3id.org/miro/> .
+@prefix geko: <https://w3id.org/geko/> .
+@prefix mlao: <https://w3id.org/mlao/> .
+@prefix icon: <https://w3id.org/icon/ontology/> .
+@prefix hico: <http://purl.org/emmedi/hico/> .
+@prefix crm: <http://www.cidoc-crm.org/cidoc-crm/> .
+@prefix lrmoo: <http://iflastandards.info/ns/lrm/lrmoo/> .
+@prefix oa: <http://www.w3.org/ns/oa#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix sc: <http://iiif.io/api/presentation/2#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+
+<https://w3id.org/interim> a owl:Ontology ;
+    dct:title "INTERIM Ontology"@en ;
+    dct:description "Ontology describing intermedial relations and ekphrasis in Digital Humanities."@en .
+
+#################################################################
+#    1. INTERIM CORE (Intermedial Relations)
+#################################################################
+
+### Classes
+
+interim:IntermedialRelation a owl:Class ;
+    rdfs:subClassOf crm:E89_Propositional_Object ;
+    owl:equivalentClass miro:IntermedialRelation ;
+    rdfs:comment "The core class representing the relationship between two different media."@en .
+
+interim:IntermedialObject a owl:Class ;
+    rdfs:subClassOf crm:E73_Information_Object ;
+    rdfs:comment "The resulting object produced by an intermedial relation."@en .
+
+interim:Medium a owl:Class ;
+    rdfs:comment "The medium involved in the intermedial relation."@en .
+
+### Properties
+
+interim:producesObject a owl:ObjectProperty ;
+    rdfs:domain interim:IntermedialRelation ;
+    rdfs:range interim:IntermedialObject ;
+    rdfs:comment "Links the relation to the object it produces."@en .
+
+interim:hasSourceMedium a owl:ObjectProperty ;
+    rdfs:domain interim:IntermedialRelation ;
+    rdfs:range interim:Medium ;
+    owl:equivalentProperty miro:hasMediumA ;
+    rdfs:comment "The source medium in the relation."@en .
+
+interim:hasTargetMedium a owl:ObjectProperty ;
+    rdfs:domain interim:IntermedialRelation ;
+    rdfs:range interim:Medium ;
+    owl:equivalentProperty miro:hasMediumB ;
+    rdfs:comment "The target medium in the relation."@en .
+
+
+#################################################################
+#    2. MIRO INTEGRATION (Media Interactions)
+#################################################################
+
+### Classes
+
+miro:IntermedialRelation a owl:Class .
+
+miro:MediaCombination a owl:Class ;
+    rdfs:subClassOf miro:IntermedialRelation .
+
+miro:MediaTransposition a owl:Class ;
+    rdfs:subClassOf miro:IntermedialRelation .
+
+miro:IntermedialReference a owl:Class ;
+    rdfs:subClassOf miro:IntermedialRelation .
+
+miro:EkphrasticRelation a owl:Class ;
+    rdfs:subClassOf miro:IntermedialReference ;
+    rdfs:comment "A specific type of intermedial reference denoting Ekphrasis."@en .
+
+
+#################################################################
+#    3. GEKO INTEGRATION (Ekphrasis Modeling)
+#################################################################
+
+### Classes
+
+geko:Ekphrasis a owl:Class ;
+    rdfs:subClassOf interim:IntermedialObject, crm:E33_LinguisticObject, prov:Collection ;
+    rdfs:comment "The Ekphrasis entity, modeled as a Linguistic Object and a Collection of Annotations."@en .
+
+geko:MimeticEkphrasis a owl:Class ;
+    rdfs:subClassOf geko:Ekphrasis .
+
+geko:NotionalEkphrasis a owl:Class ;
+    rdfs:subClassOf geko:Ekphrasis .
+
+### Object Properties
+
+geko:hasTextualReferent a owl:ObjectProperty ;
+    rdfs:domain geko:Ekphrasis ;
+    rdfs:range lrmoo:F2_Expression .
+
+geko:hasIconicReferent a owl:ObjectProperty ;
+    rdfs:domain geko:Ekphrasis ;
+    rdfs:range lrmoo:F1_Work .
+
+geko:hasEkphrasticModality a owl:ObjectProperty ;
+    rdfs:domain geko:Ekphrasis ;
+    rdfs:range skos:ConceptScheme .
+
+geko:hasAuthor a owl:ObjectProperty ;
+    rdfs:comment "A shortcut property linking the Ekphrasis directly to its human author, inferred from the creation event."@en ;
+    rdfs:domain geko:Ekphrasis ; 
+    rdfs:range foaf:Person ;
+    # Property Chain Axiom: F2 Expression -> wasCreatedBy -> F28 Creation -> carriedOutBy -> E39 Actor (Person)
+    owl:propertyChainAxiom ( lrmoo:R17i_wasCreatedBy crm:P14_carriedOutBy ) .
+
+### SKOS Schemes for Modalities
+
+geko:modalitiesScheme a skos:ConceptScheme ;
+    dct:title "Ekphrastic Modalities"@en .
+
+geko:denotation a skos:Concept ;
+    skos:inScheme geko:modalitiesScheme .
+
+geko:dynamisation a skos:Concept ;
+    skos:inScheme geko:modalitiesScheme .
+
+geko:integration a skos:Concept ;
+    skos:inScheme geko:modalitiesScheme .
+
+
+#################################################################
+#    4. MLAO & ANNOTATION (Technical Implementation)
+#################################################################
+
+### Classes
+
+mlao:Anchor a owl:Class .
+
+oa:Annotation a owl:Class .
+
+### Properties
+
+# Connection from Ekphrasis to Annotation
+prov:hadMember a owl:ObjectProperty ;
+    rdfs:domain prov:Collection ; 
+    rdfs:range oa:Annotation .
+
+# Annotation Basics
+oa:Annotation a owl:Class .
+oa:SpecificResource a owl:Class .
+oa:Text a owl:Class .
+oa:XPathSelector a owl:Class .
+oa:FragmentSelector a owl:Class .
+oa:TextualBody a owl:Class .
+oa:Motivation a owl:Class .
+sc:Manifest a owl:Class .
+sc:Canvas a owl:Class .
+
+oa:hasBody a owl:ObjectProperty ;
+    rdfs:domain oa:Annotation ;
+    rdfs:range oa:TextualBody .
+
+oa:hasTarget a owl:ObjectProperty ;
+    rdfs:domain oa:Annotation ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( oa:SpecificResource sc:Canvas oa:Text ) ] .
+
+oa:motivatedBy a owl:ObjectProperty ;
+    rdfs:domain oa:Annotation ;
+    rdfs:range oa:Motivation .
+
+oa:hasSelector a owl:ObjectProperty ;
+    rdfs:domain oa:SpecificResource ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( oa:FragmentSelector oa:XPathSelector ) ] .
+
+oa:hasSource a owl:ObjectProperty ;
+    rdfs:domain oa:SpecificResource ;
+    rdfs:range [ a owl:Class ; owl:unionOf ( sc:Canvas oa:Text ) ] .
+
+dct:isPartOf a owl:ObjectProperty ;
+    rdfs:domain sc:Canvas ;
+    rdfs:range sc:Manifest .
+
+# MLAO specific
+mlao:hasAnchor a owl:ObjectProperty ;
+    rdfs:domain oa:Annotation ;
+    rdfs:range mlao:Anchor .
+
+mlao:isAnchoredTo a owl:ObjectProperty ;
+    rdfs:domain mlao:Anchor ;
+    rdfs:range crm:E1_Entity .
+
+mlao:hasConceptualLevel a owl:ObjectProperty ;
+    rdfs:domain mlao:Anchor ;
+    rdfs:range [ a owl:Class ; 
+                 owl:unionOf ( icon:PreiconographicalSubject 
+                               icon:IconographicalSubject 
+                               icon:IconologicalSubject ) ] .
+
+icon:PreiconographicalSubject a owl:Class .
+
+icon:IconographicalSubject a owl:Class .
+
+icon:IconologicalSubject a owl:Class .
+
+# Provenance of the Interpretation/Annotation
+prov:wasGeneratedBy a owl:ObjectProperty ;
+    rdfs:domain oa:Annotation ;
+    rdfs:range hico:InterpretationAct .
+
+hico:hasInterpretationType a owl:ObjectProperty ;
+    rdfs:domain hico:InterpretationAct ;
+    rdfs:range hico:InterpretationType .
+
+hico:hasInterpretationCriterion a owl:ObjectProperty ;
+    rdfs:domain hico:InterpretationAct ;
+    rdfs:range hico:InterpretationCriterion .
+
+# Data Properties defined in the graph
+prov:startedAtTime a owl:DatatypeProperty ;
+    rdfs:range xsd:DateTime .
+
+dct:created a owl:DatatypeProperty ;
+    rdfs:range xsd:DateTime .
+
+rdf:value a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+foaf:name a owl:DatatypeProperty ;
+    rdfs:domain foaf:Person ;
+    rdfs:range xsd:string .
