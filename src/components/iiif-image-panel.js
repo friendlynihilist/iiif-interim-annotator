@@ -11,8 +11,10 @@ export class IIIFImagePanel extends HTMLElement {
     this.viewer = null;
     this.selectionOverlay = null;
     this.isDrawing = false;
+    this.isSelecting = false;
     this.startPoint = null;
     this.currentRect = null;
+    this.overlayElement = null;
   }
 
   static get observedAttributes() {
@@ -103,12 +105,27 @@ export class IIIFImagePanel extends HTMLElement {
           height: 100%;
         }
 
-        .selection-overlay {
+        #selection-canvas {
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          z-index: 1000;
+          cursor: crosshair;
+          display: none;
+        }
+
+        #selection-canvas.active {
+          display: block;
+        }
+
+        .selection-rect {
           position: absolute;
           border: 2px solid #4CAF50;
           background: rgba(76, 175, 80, 0.2);
           pointer-events: none;
-          z-index: 100;
+          z-index: 1001;
         }
 
         .info {
@@ -142,6 +159,7 @@ export class IIIFImagePanel extends HTMLElement {
         </div>
         <div class="viewer-container">
           <div id="openseadragon"></div>
+          <div id="selection-canvas"></div>
         </div>
       </div>
     `;
@@ -203,144 +221,161 @@ export class IIIFImagePanel extends HTMLElement {
     selectBtn.addEventListener('click', () => this.toggleSelectionMode());
     clearSelectionBtn.addEventListener('click', () => this.clearSelection());
 
-    // OpenSeadragon canvas events for region selection
-    this.viewer.addHandler('canvas-click', (event) => {
-      if (this.isDrawing && event.quick) {
-        this.handleCanvasClick(event);
-      }
-    });
+    // Setup mouse events on selection canvas
+    const selectionCanvas = this.shadowRoot.getElementById('selection-canvas');
 
-    this.viewer.addHandler('canvas-drag', (event) => {
-      if (this.isDrawing) {
-        this.handleCanvasDrag(event);
-      }
-    });
-
-    this.viewer.addHandler('canvas-drag-end', (event) => {
-      if (this.isDrawing) {
-        this.handleCanvasDragEnd(event);
-      }
-    });
+    selectionCanvas.addEventListener('mousedown', (e) => this.onMouseDown(e));
+    selectionCanvas.addEventListener('mousemove', (e) => this.onMouseMove(e));
+    selectionCanvas.addEventListener('mouseup', (e) => this.onMouseUp(e));
+    selectionCanvas.addEventListener('mouseleave', (e) => this.onMouseUp(e));
   }
 
   toggleSelectionMode() {
     this.isDrawing = !this.isDrawing;
     const selectBtn = this.shadowRoot.getElementById('select-btn');
+    const selectionCanvas = this.shadowRoot.getElementById('selection-canvas');
 
     if (this.isDrawing) {
       selectBtn.classList.add('active');
-      selectBtn.textContent = 'Selection Active';
-      this.viewer.setMouseNavEnabled(false);
+      selectBtn.textContent = 'Selection Active ✓';
+      selectionCanvas.classList.add('active');
       this.updateInfo('Click and drag to select a region');
     } else {
       selectBtn.classList.remove('active');
       selectBtn.textContent = 'Select Region';
-      this.viewer.setMouseNavEnabled(true);
+      selectionCanvas.classList.remove('active');
       this.updateInfo('Selection mode disabled');
     }
   }
 
-  handleCanvasClick(event) {
-    const webPoint = event.position;
-    const viewportPoint = this.viewer.viewport.pointFromPixel(webPoint);
-    this.startPoint = viewportPoint;
+  onMouseDown(e) {
+    if (!this.isDrawing) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    this.isSelecting = true;
+    this.startPoint = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+
+    // Remove any existing selection rectangle
+    this.clearSelectionRect();
   }
 
-  handleCanvasDrag(event) {
-    if (!this.startPoint) return;
+  onMouseMove(e) {
+    if (!this.isDrawing || !this.isSelecting || !this.startPoint) return;
 
-    const webPoint = event.position;
-    const viewportPoint = this.viewer.viewport.pointFromPixel(webPoint);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const currentPoint = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
 
-    // Clear previous overlay
-    this.clearSelectionOverlay();
+    // Calculate rectangle
+    const x = Math.min(this.startPoint.x, currentPoint.x);
+    const y = Math.min(this.startPoint.y, currentPoint.y);
+    const width = Math.abs(currentPoint.x - this.startPoint.x);
+    const height = Math.abs(currentPoint.y - this.startPoint.y);
 
-    // Create new overlay
-    const rect = new OpenSeadragon.Rect(
-      Math.min(this.startPoint.x, viewportPoint.x),
-      Math.min(this.startPoint.y, viewportPoint.y),
-      Math.abs(viewportPoint.x - this.startPoint.x),
-      Math.abs(viewportPoint.y - this.startPoint.y)
+    this.drawSelectionRect(x, y, width, height);
+  }
+
+  onMouseUp(e) {
+    if (!this.isDrawing || !this.isSelecting || !this.startPoint) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const endPoint = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+
+    // Calculate final rectangle in pixel coordinates
+    const pixelX = Math.min(this.startPoint.x, endPoint.x);
+    const pixelY = Math.min(this.startPoint.y, endPoint.y);
+    const pixelWidth = Math.abs(endPoint.x - this.startPoint.x);
+    const pixelHeight = Math.abs(endPoint.y - this.startPoint.y);
+
+    // Convert to viewport coordinates
+    const viewportRect = this.viewer.viewport.viewerElementToViewportRectangle(
+      new OpenSeadragon.Rect(pixelX, pixelY, pixelWidth, pixelHeight)
     );
 
-    this.currentRect = rect;
-    this.drawSelectionOverlay(rect);
-  }
-
-  handleCanvasDragEnd(event) {
-    if (!this.currentRect || !this.startPoint) return;
-
-    const rect = this.currentRect;
-
-    // Convert to IIIF Image API fragment selector format (xywh)
-    // Assuming image dimensions are available from tileSources
+    // Convert to image coordinates
     const imageWidth = this.viewer.world.getItemAt(0)?.source.dimensions?.x || 1000;
     const imageHeight = this.viewer.world.getItemAt(0)?.source.dimensions?.y || 1000;
 
-    const x = Math.round(rect.x * imageWidth);
-    const y = Math.round(rect.y * imageHeight);
-    const w = Math.round(rect.width * imageWidth);
-    const h = Math.round(rect.height * imageHeight);
+    const x = Math.round(viewportRect.x * imageWidth);
+    const y = Math.round(viewportRect.y * imageHeight);
+    const w = Math.round(viewportRect.width * imageWidth);
+    const h = Math.round(viewportRect.height * imageHeight);
 
-    // Create IIIF fragment selector
-    const selector = {
-      type: 'FragmentSelector',
-      conformsTo: 'http://www.w3.org/TR/media-frags/',
-      value: `xywh=${x},${y},${w},${h}`
-    };
+    // Only create annotation if rectangle has meaningful size
+    if (w > 5 && h > 5) {
+      // Create IIIF fragment selector
+      const selector = {
+        type: 'FragmentSelector',
+        conformsTo: 'http://www.w3.org/TR/media-frags/',
+        value: `xywh=${x},${y},${w},${h}`
+      };
 
-    // Get the current image source
-    const source = this.viewer.world.getItemAt(0)?.source;
-    const imageUrl = source?.['@id'] || source?.id || this.getAttribute('tileSources') || '';
+      // Get the current image source
+      const source = this.viewer.world.getItemAt(0)?.source;
+      const imageUrl = source?.['@id'] || source?.id || this.getAttribute('tileSources') || '';
 
-    const selectionData = {
-      source: imageUrl,
-      selector: selector,
-      region: { x, y, w, h },
-      viewport: {
-        x: rect.x,
-        y: rect.y,
-        width: rect.width,
-        height: rect.height
-      }
-    };
+      const selectionData = {
+        source: imageUrl,
+        selector: selector,
+        region: { x, y, w, h },
+        viewport: {
+          x: viewportRect.x,
+          y: viewportRect.y,
+          width: viewportRect.width,
+          height: viewportRect.height
+        }
+      };
 
-    // Dispatch event
-    this.dispatchEvent(new CustomEvent('image-region-selected', {
-      detail: selectionData,
-      bubbles: true,
-      composed: true
-    }));
+      // Dispatch event
+      this.dispatchEvent(new CustomEvent('image-region-selected', {
+        detail: selectionData,
+        bubbles: true,
+        composed: true
+      }));
 
-    this.updateInfo(`Region selected: ${w}x${h} at (${x}, ${y})`);
+      this.updateInfo(`Region selected: ${w}x${h} at (${x}, ${y})`);
+    }
 
-    // Optionally disable selection mode after selection
-    // this.toggleSelectionMode();
+    this.isSelecting = false;
+    this.startPoint = null;
   }
 
-  drawSelectionOverlay(rect) {
-    const overlay = document.createElement('div');
-    overlay.className = 'selection-overlay';
+  drawSelectionRect(x, y, width, height) {
+    // Remove existing rect
+    this.clearSelectionRect();
 
-    this.viewer.addOverlay({
-      element: overlay,
-      location: rect
-    });
+    // Create new rect
+    const rectDiv = document.createElement('div');
+    rectDiv.className = 'selection-rect';
+    rectDiv.id = 'current-selection-rect';
+    rectDiv.style.left = x + 'px';
+    rectDiv.style.top = y + 'px';
+    rectDiv.style.width = width + 'px';
+    rectDiv.style.height = height + 'px';
 
-    this.selectionOverlay = overlay;
+    const canvas = this.shadowRoot.getElementById('selection-canvas');
+    canvas.appendChild(rectDiv);
   }
 
-  clearSelectionOverlay() {
-    if (this.selectionOverlay) {
-      this.viewer.removeOverlay(this.selectionOverlay);
-      this.selectionOverlay = null;
+  clearSelectionRect() {
+    const existingRect = this.shadowRoot.getElementById('current-selection-rect');
+    if (existingRect) {
+      existingRect.remove();
     }
   }
 
   clearSelection() {
-    this.clearSelectionOverlay();
+    this.clearSelectionRect();
     this.startPoint = null;
-    this.currentRect = null;
+    this.isSelecting = false;
     this.updateInfo('Selection cleared');
   }
 
@@ -390,8 +425,19 @@ export class IIIFImagePanel extends HTMLElement {
   }
 
   loadTileSource(tileSource) {
-    this.viewer.open(tileSource);
-    this.updateInfo('Image loaded');
+    try {
+      // Ensure IIIF Image API URLs have /info.json
+      let source = tileSource;
+      if (source.includes('iiif') && !source.endsWith('info.json') && !source.endsWith('.jpg') && !source.endsWith('.png')) {
+        source = source + '/info.json';
+      }
+
+      this.viewer.open(source);
+      this.updateInfo('Image loaded');
+    } catch (error) {
+      console.error('Error loading tile source:', error);
+      this.updateInfo('Error loading image: ' + error.message);
+    }
   }
 
   updateInfo(message) {
