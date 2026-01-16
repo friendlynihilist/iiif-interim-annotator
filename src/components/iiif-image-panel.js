@@ -15,6 +15,7 @@ export class IIIFImagePanel extends HTMLElement {
     this.startPoint = null;
     this.currentRect = null;
     this.overlayElement = null;
+    this.confirmedRects = []; // Store all confirmed (persistent) rectangles
   }
 
   static get observedAttributes() {
@@ -126,6 +127,12 @@ export class IIIFImagePanel extends HTMLElement {
           background: rgba(76, 175, 80, 0.2);
           pointer-events: none;
           z-index: 1001;
+        }
+
+        .selection-rect.confirmed {
+          border: 2px solid #388E3C;
+          background: rgba(56, 142, 60, 0.3);
+          z-index: 1000;
         }
 
         .info {
@@ -258,8 +265,8 @@ export class IIIFImagePanel extends HTMLElement {
       y: e.clientY - rect.top
     };
 
-    // Remove any existing selection rectangle
-    this.clearSelectionRect();
+    // Remove only the current (non-confirmed) selection rectangle
+    this.clearCurrentSelectionRect();
   }
 
   onMouseMove(e) {
@@ -349,8 +356,8 @@ export class IIIFImagePanel extends HTMLElement {
   }
 
   drawSelectionRect(x, y, width, height) {
-    // Remove existing rect
-    this.clearSelectionRect();
+    // Remove existing current rect (not confirmed ones)
+    this.clearCurrentSelectionRect();
 
     // Create new rect
     const rectDiv = document.createElement('div');
@@ -365,15 +372,26 @@ export class IIIFImagePanel extends HTMLElement {
     canvas.appendChild(rectDiv);
   }
 
-  clearSelectionRect() {
+  clearCurrentSelectionRect() {
     const existingRect = this.shadowRoot.getElementById('current-selection-rect');
-    if (existingRect) {
+    if (existingRect && !existingRect.classList.contains('confirmed')) {
       existingRect.remove();
     }
   }
 
+  confirmCurrentRect() {
+    // Make the current selection rectangle permanent
+    const currentRect = this.shadowRoot.getElementById('current-selection-rect');
+    if (currentRect) {
+      // Change ID so it won't be removed by clearCurrentSelectionRect
+      currentRect.id = `confirmed-rect-${this.confirmedRects.length}`;
+      currentRect.classList.add('confirmed');
+      this.confirmedRects.push(currentRect);
+    }
+  }
+
   clearSelection() {
-    this.clearSelectionRect();
+    this.clearCurrentSelectionRect();
     this.startPoint = null;
     this.isSelecting = false;
     this.updateInfo('Selection cleared');

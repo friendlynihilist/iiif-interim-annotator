@@ -8,6 +8,9 @@ export class IIIFTextPanel extends HTMLElement {
     this.attachShadow({ mode: 'open' });
     this.textContent = '';
     this.annotations = [];
+    this.currentSelection = null;
+    this.currentSelectionElement = null;
+    this.confirmedElements = []; // Store all confirmed (green) text elements
   }
 
   static get observedAttributes() {
@@ -75,21 +78,29 @@ export class IIIFTextPanel extends HTMLElement {
           background: #B3D4FC;
         }
 
-        .highlighted {
+        .text-selected {
           background: #FFEB3B;
           cursor: pointer;
-          transition: background 0.2s;
+          transition: background 0.3s;
+          padding: 0.1rem 0.2rem;
+          border-radius: 2px;
         }
 
-        .highlighted:hover {
+        .text-selected:hover {
           background: #FDD835;
         }
 
-        .selection-active {
-          background: #4CAF50;
+        .text-confirmed {
+          background: #81C784;
           color: white;
-          padding: 0.2rem 0.4rem;
-          border-radius: 3px;
+          cursor: pointer;
+          transition: background 0.3s;
+          padding: 0.1rem 0.2rem;
+          border-radius: 2px;
+        }
+
+        .text-confirmed:hover {
+          background: #66BB6A;
         }
 
         button {
@@ -101,8 +112,22 @@ export class IIIFTextPanel extends HTMLElement {
           font-size: 0.9rem;
         }
 
-        button:hover {
+        button:hover:not(:disabled) {
           background: #f5f5f5;
+        }
+
+        button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        #confirm-selection-btn:not(:disabled) {
+          background: #FFF9C4;
+          border-color: #FBC02D;
+        }
+
+        #confirm-selection-btn:not(:disabled):hover {
+          background: #FFF59D;
         }
 
         .info {
@@ -115,8 +140,9 @@ export class IIIFTextPanel extends HTMLElement {
       <div class="container">
         <div class="controls">
           <input type="file" id="file-input" accept=".txt,.xml,.html" />
-          <button id="clear-btn">Clear Text</button>
+          <button id="confirm-selection-btn" disabled>Confirm Text Selection</button>
           <button id="clear-selection-btn">Clear Selection</button>
+          <button id="clear-btn">Clear Text</button>
           <span class="info" id="info">No text loaded</span>
         </div>
         <div class="text-area" id="text-display"></div>
@@ -127,11 +153,13 @@ export class IIIFTextPanel extends HTMLElement {
   setupEventListeners() {
     const fileInput = this.shadowRoot.getElementById('file-input');
     const clearBtn = this.shadowRoot.getElementById('clear-btn');
+    const confirmSelectionBtn = this.shadowRoot.getElementById('confirm-selection-btn');
     const clearSelectionBtn = this.shadowRoot.getElementById('clear-selection-btn');
     const textDisplay = this.shadowRoot.getElementById('text-display');
 
     fileInput.addEventListener('change', (e) => this.handleFileUpload(e));
     clearBtn.addEventListener('click', () => this.clearText());
+    confirmSelectionBtn.addEventListener('click', () => this.confirmTextSelection());
     clearSelectionBtn.addEventListener('click', () => this.clearSelection());
 
     // Handle text selection
@@ -176,6 +204,14 @@ export class IIIFTextPanel extends HTMLElement {
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
 
+    // Remove previous YELLOW selection if exists (but keep green confirmed ones)
+    if (this.currentSelectionElement && this.currentSelectionElement.className === 'text-selected') {
+      const parent = this.currentSelectionElement.parentNode;
+      const textNode = document.createTextNode(this.currentSelectionElement.textContent);
+      parent.replaceChild(textNode, this.currentSelectionElement);
+      parent.normalize(); // Merge adjacent text nodes
+    }
+
     // Get the range of the selection
     const range = selection.getRangeAt(0);
     const textDisplay = this.shadowRoot.getElementById('text-display');
@@ -212,22 +248,88 @@ export class IIIFTextPanel extends HTMLElement {
       end: end
     };
 
-    // Dispatch event to parent annotator
+    // Save current selection
+    this.currentSelection = selectionData;
+
+    // Wrap selected text in a mark element with yellow highlight
+    const mark = document.createElement('mark');
+    mark.className = 'text-selected';
+    mark.textContent = selectedText;
+
+    try {
+      range.deleteContents();
+      range.insertNode(mark);
+      this.currentSelectionElement = mark;
+    } catch (error) {
+      console.error('Error highlighting text:', error);
+    }
+
+    // Clear the browser selection
+    selection.removeAllRanges();
+
+    // Enable confirm button
+    const confirmBtn = this.shadowRoot.getElementById('confirm-selection-btn');
+    confirmBtn.disabled = false;
+
+    this.updateInfo(`Selected (yellow): "${selectedText.substring(0, 30)}${selectedText.length > 30 ? '...' : ''}"`);
+  }
+
+  confirmTextSelection() {
+    if (!this.currentSelection || !this.currentSelectionElement) {
+      return;
+    }
+
+    // Change highlight color from yellow to green
+    this.currentSelectionElement.className = 'text-confirmed';
+
+    // Add to confirmed elements list (these will persist)
+    this.confirmedElements.push({
+      element: this.currentSelectionElement,
+      selection: this.currentSelection
+    });
+
+    // Dispatch event to parent annotator (now the selection is confirmed)
     this.dispatchEvent(new CustomEvent('text-selected', {
-      detail: selectionData,
+      detail: this.currentSelection,
       bubbles: true,
       composed: true
     }));
 
-    this.updateInfo(`Selected: "${selectedText.substring(0, 30)}${selectedText.length > 30 ? '...' : ''}"`);
+    // Reset current selection (ready for next annotation)
+    this.currentSelection = null;
+    this.currentSelectionElement = null;
+
+    // Disable confirm button
+    const confirmBtn = this.shadowRoot.getElementById('confirm-selection-btn');
+    confirmBtn.disabled = true;
+
+    this.updateInfo(`Confirmed (green) - Ready for next selection`);
   }
 
   clearSelection() {
+    // Remove ONLY the current yellow highlight from DOM (keep green confirmed ones)
+    if (this.currentSelectionElement && this.currentSelectionElement.className === 'text-selected') {
+      const parent = this.currentSelectionElement.parentNode;
+      const textNode = document.createTextNode(this.currentSelectionElement.textContent);
+      parent.replaceChild(textNode, this.currentSelectionElement);
+      parent.normalize();
+    }
+
+    // Clear browser selection
     const selection = this.shadowRoot.getSelection();
     if (selection) {
       selection.removeAllRanges();
     }
-    this.updateInfo('Selection cleared');
+
+    // Reset current state only
+    this.currentSelection = null;
+    this.currentSelectionElement = null;
+
+    // Disable confirm button
+    const confirmBtn = this.shadowRoot.getElementById('confirm-selection-btn');
+    confirmBtn.disabled = true;
+
+    this.updateInfo('Current selection cleared');
   }
 
   clearText() {

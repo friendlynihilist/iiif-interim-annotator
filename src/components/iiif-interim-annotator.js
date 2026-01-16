@@ -96,7 +96,27 @@ export class IIIFInterimAnnotator extends HTMLElement {
           color: #666;
           font-size: 0.9rem;
         }
+
+        #connection-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          pointer-events: none;
+          z-index: 500;
+        }
+
+        .connection-line {
+          fill: none;
+          stroke: #66BB6A;
+          stroke-width: 2;
+          opacity: 0.8;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        }
       </style>
+
+      <svg id="connection-overlay"></svg>
 
       <div class="container">
         <div class="panel">
@@ -187,10 +207,86 @@ export class IIIFInterimAnnotator extends HTMLElement {
       composed: true
     }));
 
+    // Confirm/persist the image rectangle
+    const imagePanel = this.querySelector('iiif-image-panel') ||
+                       this.shadowRoot.querySelector('slot[name="image-panel"]')?.assignedElements()[0];
+    if (imagePanel && typeof imagePanel.confirmCurrentRect === 'function') {
+      imagePanel.confirmCurrentRect();
+    }
+
+    // Draw connection line
+    this.drawConnectionLine();
+
     this.updateStatus(`Annotation created (${this.annotations.length} total)`);
     this.selectedTextRange = null;
     this.selectedImageRegion = null;
     this.updateLinkButton();
+  }
+
+  drawConnectionLine() {
+    // Get text panel and image panel components
+    const textPanel = this.querySelector('iiif-text-panel') ||
+                      this.shadowRoot.querySelector('slot[name="text-panel"]')?.assignedElements()[0];
+    const imagePanel = this.querySelector('iiif-image-panel') ||
+                       this.shadowRoot.querySelector('slot[name="image-panel"]')?.assignedElements()[0];
+
+    if (!textPanel || !imagePanel) return;
+
+    // Find the LAST confirmed text element (the one just created)
+    const allConfirmedTexts = textPanel.shadowRoot?.querySelectorAll('.text-confirmed');
+    if (!allConfirmedTexts || allConfirmedTexts.length === 0) return;
+    const textElement = allConfirmedTexts[allConfirmedTexts.length - 1];
+
+    // Find the LAST confirmed image rectangle (the one just created)
+    const allConfirmedRects = imagePanel.shadowRoot?.querySelectorAll('.selection-rect.confirmed');
+    if (!allConfirmedRects || allConfirmedRects.length === 0) return;
+    const imageRect = allConfirmedRects[allConfirmedRects.length - 1];
+
+    // Get bounding rectangles relative to viewport
+    const textBounds = textElement.getBoundingClientRect();
+
+    // For image, we need to get the selection canvas position
+    const selectionCanvas = imagePanel.shadowRoot?.querySelector('#selection-canvas');
+    if (!selectionCanvas) return;
+
+    const canvasBounds = selectionCanvas.getBoundingClientRect();
+
+    // Calculate image region position from the confirmed rectangle
+    const rectStyle = imageRect.style;
+    const imageBounds = {
+      left: canvasBounds.left + parseFloat(rectStyle.left),
+      top: canvasBounds.top + parseFloat(rectStyle.top),
+      width: parseFloat(rectStyle.width),
+      height: parseFloat(rectStyle.height)
+    };
+    imageBounds.right = imageBounds.left + imageBounds.width;
+    imageBounds.bottom = imageBounds.top + imageBounds.height;
+
+    // Calculate connection points
+    // Start: right edge, middle of text
+    const startX = textBounds.right;
+    const startY = textBounds.top + textBounds.height / 2;
+
+    // End: left edge, middle of image region
+    const endX = imageBounds.left;
+    const endY = imageBounds.top + imageBounds.height / 2;
+
+    // Control points for Bezier curve
+    const controlX1 = startX + (endX - startX) * 0.5;
+    const controlY1 = startY;
+    const controlX2 = startX + (endX - startX) * 0.5;
+    const controlY2 = endY;
+
+    // Create SVG path
+    const svg = this.shadowRoot.getElementById('connection-overlay');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+
+    const pathData = `M ${startX} ${startY} C ${controlX1} ${controlY1}, ${controlX2} ${controlY2}, ${endX} ${endY}`;
+    path.setAttribute('d', pathData);
+    path.setAttribute('class', 'connection-line');
+    path.setAttribute('data-annotation', this.annotations.length - 1);
+
+    svg.appendChild(path);
   }
 
   exportAnnotations() {
